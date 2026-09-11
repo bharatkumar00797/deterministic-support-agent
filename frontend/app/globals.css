@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+}
+
+/* Simple markdown-ish code block */
+pre {
+  @apply bg-slate-800 text-slate-100 p-3 rounded-lg text-xs overflow-x-auto my-2;
+}
