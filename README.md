@@ -2,18 +2,19 @@
 
 An AI customer support agent that **actually completes multi-step tasks** (refunds, cancellations, account updates) using reliable LangGraph workflows.
 
-## Key Design
-- LLM reasons about intent
-- **Code-governed edges** decide the execution path
-- Pydantic validation on every tool call
-- Human-in-the-loop approval for high-risk actions (refunds, cancellations)
-- Full audit trail via state + checkpoints
+## Why “Deterministic”?
+Most support bots only chat. This one:
+- Uses an LLM only for intent understanding and proposals
+- Lets **code-controlled edges** decide the real execution path
+- Validates every tool call with Pydantic
+- Requires human approval for high-risk actions (refunds, cancellations)
+- Keeps full state + checkpoints for auditability
 
 ## Tech Stack
-- **Agent**: LangGraph + LangChain
+- **Orchestration**: LangGraph
 - **Backend**: FastAPI
 - **Frontend**: Next.js 15 + TypeScript + Tailwind
-- **Tools**: Deterministic Python functions with validation
+- **Tools**: Pure Python functions with strict validation
 
 ## Quick Start
 
@@ -22,32 +23,35 @@ An AI customer support agent that **actually completes multi-step tasks** (refun
 cd backend
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-# Optional: export OPENAI_API_KEY=sk-...
+# Optional but recommended:
+# export OPENAI_API_KEY=sk-...
 uvicorn app.main:app --reload --port 8001
 ```
 
-### Frontend (port 3000)
+### Frontend
 ```bash
 cd frontend
-npm install
-npm run dev
+npm install && npm run dev
 ```
+Open → http://localhost:3000
 
-Open http://localhost:3000
+### Try these prompts
+- “I want a refund for order 12345”
+- “Please cancel my subscription”
+- “Update my email address”
 
-## Example Flows
-1. User: “I want a refund for my last order”
-2. Agent classifies → proposes `process_refund`
-3. UI shows **Approve / Reject** buttons
-4. On approve → tool executes → confirmation message
+You will see an **Approve / Reject** card for risky actions.
 
-Works without an OpenAI key (heuristic fallback for local demos).
+## Deploy
+See [DEPLOY.md](./DEPLOY.md).
 
-## Status
-- Core LangGraph agent ✅
-- Deterministic tools ✅
-- HITL approval path ✅
-- Chat UI ✅
-- Deployment ⏳
+## Project Status
+| Area                    | Status      |
+|-------------------------|-------------|
+| LangGraph workflow      | ✅ Complete |
+| Deterministic tools     | ✅ Complete |
+| Human-in-the-loop       | ✅ Complete |
+| Chat UI + approvals     | ✅ Complete |
+| Deployment ready        | ✅ Yes      |
 
 Built with Grok.
