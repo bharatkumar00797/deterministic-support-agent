@@ -53,5 +53,3 @@ See [DEPLOY.md](./DEPLOY.md).
 | Human-in-the-loop       | ✅ Complete |
 | Chat UI + approvals     | ✅ Complete |
 | Deployment ready        | ✅ Yes      |
-
-Built with Grok.
