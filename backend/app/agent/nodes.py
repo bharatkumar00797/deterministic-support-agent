@@ -8,7 +8,6 @@ from typing import Dict, Any, Literal
 from langchain_core.messages import AIMessage
 from pydantic import BaseModel, Field
 import os
-import json
 import re
 
 from app.agent.state import SupportState
@@ -66,20 +65,7 @@ def classify_intent(state: SupportState) -> Dict[str, Any]:
     customer_id = state.get("customer_id") or "CUST-DEMO-001"
 
     if llm is None:
-        text = str(last_message).lower()
-        if "refund" in text or "money back" in text:
-            intent = "refund"
-        elif "cancel" in text:
-            intent = "cancel"
-        elif "status" in text or "where is" in text or "tracking" in text:
-            intent = "order_status"
-        elif "update" in text or "change" in text:
-            intent = "update_account"
-        elif "human" in text or "manager" in text or "escalate" in text:
-            intent = "escalate"
-        else:
-            intent = "other"
-        return _fresh(intent, customer_id)
+        return _fresh(_rules_intent(str(last_message)), customer_id)
 
     from langchain_core.prompts import ChatPromptTemplate
 
@@ -117,6 +103,51 @@ def _email(text: str) -> str | None:
     return match.group(0) if match else None
 
 
+def _rules_intent(text: str) -> str:
+    """Same order as the browser agent, so production and /api/chat agree."""
+    lowered = text.lower()
+    if re.search(r"\b(refund|money back|chargeback)\b", lowered):
+        return "refund"
+    if "cancel" in lowered:
+        return "cancel"
+    if re.search(r"\b(status|tracking|where is|shipped|delivered)\b", lowered):
+        return "order_status"
+    if re.search(r"\b(human|manager|escalate|supervisor)\b", lowered):
+        return "escalate"
+    if _is_account_change(text):
+        return "update_account"
+    if re.search(r"\border\b", lowered):
+        return "order_status"
+    return "other"
+
+
+def _is_account_change(text: str) -> bool:
+    lowered = text.lower()
+    if re.search(r"\baddress\s*:", text, re.I):
+        return True
+    mentions_field = re.search(r"\b(email|address|phone)\b", lowered)
+    mentions_verb = re.search(r"\b(update|change|switch|set)\b", lowered)
+    if mentions_field and mentions_verb:
+        return True
+    return bool(re.search(r"\b(update|change)\b", lowered) and "account" in lowered)
+
+
+def _phone(text: str) -> str | None:
+    match = re.search(
+        r"(?:\+\d{1,3}\s?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}",
+        text,
+    )
+    return match.group(0) if match else None
+
+
+def _address(text: str) -> str | None:
+    labeled = re.search(r"\baddress\s*:\s*(.+)$", text, re.I)
+    if labeled:
+        return labeled.group(1).strip()
+    stated = re.search(r"\baddress\s+(?:to|is)\s+(.+)$", text, re.I)
+    return stated.group(1).strip() if stated else None
+
+
 def propose_action(state: SupportState) -> Dict[str, Any]:
     """Node 2: Propose a concrete action based on intent."""
     intent = state.get("intent")
@@ -145,20 +176,33 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
                 ))],
             }
         known = ORDERS.get(order_id)
-        amount = _amount(last_message) or (known["amount"] if known else None)
-        if amount is None:
+        if not known:
+            return {
+                "current_step": "completed",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content=(
+                    f"No order {order_id} belongs to this account. I will not open a refund gate."
+                ))],
+            }
+        stated = _amount(last_message)
+        amount = known["amount"] if stated is None else stated
+        if abs(amount - known["amount"]) > 0.009 or amount > 5000:
             return {
                 "current_step": "needs_detail",
                 "needs_approval": False,
                 "proposed_action": None,
-                "messages": [AIMessage(content=f"I need a dollar amount for {order_id}.")],
+                "messages": [AIMessage(content=(
+                    f"${amount:.2f} does not match the {order_id} total of ${known['amount']:.2f}. "
+                    "I will not open a gate for a different amount."
+                ))],
             }
         return {
             "proposed_action": {
                 "tool": "process_refund",
                 "args": {
                     "order_id": order_id,
-                    "amount": amount,
+                    "amount": known["amount"],
                     "reason": "Customer requested refund",
                     "customer_id": customer_id,
                 },
@@ -190,18 +234,30 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
 
     if intent == "update_account":
         email = _email(last_message)
-        if not email:
+        phone = _phone(last_message)
+        address = _address(last_message)
+        # A phone pattern can swallow digits that are not a phone request.
+        if phone and not re.search(r"\bphone\b", last_message, re.I):
+            phone = None
+        if not email and not phone and not address:
             return {
                 "current_step": "needs_detail",
                 "needs_approval": False,
                 "proposed_action": None,
-                "messages": [AIMessage(content="What email should I set on the account?")],
+                "messages": [AIMessage(content=(
+                    "What should I change? Send a new email, a phone number, "
+                    "or a line that starts with \"address:\"."
+                ))],
             }
+        args: Dict[str, Any] = {"customer_id": customer_id}
+        if email:
+            args["email"] = email
+        if phone:
+            args["phone"] = phone
+        if address:
+            args["address"] = address
         return {
-            "proposed_action": {
-                "tool": "update_account",
-                "args": {"customer_id": customer_id, "email": email},
-            },
+            "proposed_action": {"tool": "update_account", "args": args},
             "needs_approval": False,
             "current_step": "proposed",
         }
@@ -217,13 +273,23 @@ def check_approval(state: SupportState) -> Dict[str, Any]:
     """Node 3: Decide whether we can proceed or must wait for human."""
     if state.get("needs_approval") and not state.get("approved"):
         action = state.get("proposed_action") or {}
+        tool = action.get("tool")
+        args = action.get("args") or {}
+        if tool == "process_refund":
+            content = (
+                f"I will not move money yet. Proposed process_refund for {args.get('order_id')} "
+                f"at ${float(args.get('amount') or 0):.2f}. Approve to execute, or reject to leave the ledger alone."
+            )
+        elif tool == "cancel_subscription":
+            content = (
+                f"Proposed cancel_subscription for Northline Plus ({args.get('subscription_id')}). "
+                "This does not run until you approve."
+            )
+        else:
+            content = f"Approval required before {tool} runs."
         return {
             "current_step": "awaiting_approval",
-            "messages": [AIMessage(content=(
-                f"I propose to run **{action.get('tool')}** with args:\n"
-                f"```json\n{json.dumps(action.get('args') or {}, indent=2)}\n```\n"
-                "Please reply with **approve** or **reject**."
-            ))]
+            "messages": [AIMessage(content=content)],
         }
     return {"current_step": "ready_to_execute"}
 
@@ -237,11 +303,20 @@ def execute_tool(state: SupportState) -> Dict[str, Any]:
 
     try:
         if tool_name == "process_refund":
-            if str(args.get("order_id")) in (ledger.get("refunded") or []):
+            order_id = str(args.get("order_id") or "")
+            if order_id in (ledger.get("refunded") or []):
                 return {
                     "tool_result": None,
                     "current_step": "error",
-                    "error": f"{args.get('order_id')} is already refunded.",
+                    "error": f"{order_id} is already refunded.",
+                }
+            known = ORDERS.get(order_id)
+            amount = float(args.get("amount") or 0)
+            if not known or abs(amount - known["amount"]) > 0.009 or amount > 5000:
+                return {
+                    "tool_result": None,
+                    "current_step": "error",
+                    "error": f"Refund for {order_id} does not match the order on this account.",
                 }
             req = RefundRequest(**args)
             result = process_refund(req)
