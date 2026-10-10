@@ -23,15 +23,18 @@ export interface ChatResponse {
 export type { CaseSnapshot };
 
 function chatUrl(): string {
-  if (!configured) return "/api/chat";
+  // The production bundle inlines NEXT_PUBLIC_API_URL. It is currently
+  // https://deterministic-support-api.vercel.app, and that host returns
+  // FUNCTION_INVOCATION_FAILED for every path, including /health. The
+  // same-origin route already runs the gate. Only a laptop page may call
+  // a laptop API.
+  if (typeof window === "undefined") return "/api/chat";
+  const pageHost = window.location.hostname;
+  const pageIsLoopback = pageHost === "localhost" || pageHost === "127.0.0.1";
+  if (!pageIsLoopback || !configured) return "/api/chat";
   try {
     const host = new URL(configured).hostname;
-    const pointsAtLoopback = host === "localhost" || host === "127.0.0.1";
-    const pageHost = typeof window === "undefined" ? "" : window.location.hostname;
-    const pageIsLoopback = pageHost === "localhost" || pageHost === "127.0.0.1";
-    // A baked-in localhost URL is what made production call a backend
-    // that does not exist in the browser. Same-origin /api/chat holds the case.
-    if (pointsAtLoopback && !pageIsLoopback) return "/api/chat";
+    if (host !== "localhost" && host !== "127.0.0.1") return "/api/chat";
   } catch {
     return "/api/chat";
   }
