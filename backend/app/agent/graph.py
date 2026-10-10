@@ -65,7 +65,9 @@ def route_after_approval_check(state: SupportState) -> str:
 
 
 def start_node(state: SupportState):
-    return {}
+    # An empty return is an invalid LangGraph update and crashes every /chat
+    # call with InvalidUpdateError before classify or the approval gate runs.
+    return {"current_step": state.get("current_step") or "ready"}
 
 
 def build_support_graph():

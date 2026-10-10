@@ -213,6 +213,21 @@ function proposeRefund(next: CaseFile, text: string): CaseFile {
 }
 
 function proposeCancel(next: CaseFile, _text: string): CaseFile {
+  if (next.ledger.cancelled) {
+    next.step = "completed";
+    next.needsApproval = false;
+    next.proposed = null;
+    next.messages.push({
+      role: "assistant",
+      content:
+        "Northline Plus is already cancelled. I will not open another gate for it.",
+    });
+    next.audit.push({
+      step: "Propose",
+      detail: "Blocked: subscription already cancelled",
+    });
+    return next;
+  }
   const proposed: ProposedAction = {
     tool: "cancel_subscription",
     args: {

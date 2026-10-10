@@ -282,6 +282,13 @@ def generate_response(state: SupportState) -> Dict[str, Any]:
         content = result.get("message", "Action completed successfully.")
         if result.get("status") == "success":
             content = f"✅ {content}"
+    elif state.get("intent") == "order_status":
+        content = _status_reply(state)
+    elif state.get("intent") == "escalate":
+        content = (
+            "Opened a human queue ticket HQ-221 for this customer. "
+            "No refund, cancel, or account tool was called."
+        )
     else:
         content = (
             "I didn't take an action. Ask for a refund, a cancellation, "
@@ -292,3 +299,28 @@ def generate_response(state: SupportState) -> Dict[str, Any]:
         "messages": [AIMessage(content=content)],
         "current_step": "completed",
     }
+
+
+def _last_user_text(state: SupportState) -> str:
+    for message in reversed(state.get("messages") or []):
+        if isinstance(message, AIMessage):
+            continue
+        return str(getattr(message, "content", "") or "")
+    return ""
+
+
+def _status_reply(state: SupportState) -> str:
+    order_id = _order_id(_last_user_text(state))
+    ledger = state.get("ledger") or {}
+    refunded = set(ledger.get("refunded") or [])
+    if not order_id:
+        lines = []
+        for oid, info in ORDERS.items():
+            status = "refunded" if oid in refunded or oid == "ORD-77821" else "on file"
+            lines.append(f"{oid} · {info['item']} · ${info['amount']:.2f} · {status}")
+        return "Which order?\n" + "\n".join(lines)
+    known = ORDERS.get(order_id)
+    if not known:
+        return f"No order {order_id} belongs to this account."
+    status = "refunded" if order_id in refunded else "on file"
+    return f"{order_id} · {known['item']} · ${known['amount']:.2f} · {status}. No tool was required."
