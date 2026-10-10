@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "index.py": {
-      "excludeFiles": "{app/main.py,Dockerfile,.env.example,**/__pycache__/**}"
+      "excludeFiles": "{../frontend/**,../**/*.json,app/main.py,Dockerfile,.env.example,**/__pycache__/**}"
     }
   }
 }
