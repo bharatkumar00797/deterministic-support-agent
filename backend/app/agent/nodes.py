@@ -118,6 +118,7 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
     intent = state.get("intent")
     customer_id = state.get("customer_id", "CUST-DEMO-001")
     last_message = str(state["messages"][-1].content if state["messages"] else "")
+    ledger = state.get("ledger") or {}
 
     if intent == "refund":
         order_id = _order_id(last_message)
@@ -128,6 +129,15 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
                 "proposed_action": None,
                 "messages": [AIMessage(content=(
                     "Which order should I refund? Try ORD-12345, ORD-44002, or ORD-77821."
+                ))],
+            }
+        if order_id in (ledger.get("refunded") or []):
+            return {
+                "current_step": "completed",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content=(
+                    f"{order_id} is already refunded. I will not open another gate for it."
                 ))],
             }
         known = ORDERS.get(order_id)
@@ -154,6 +164,13 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
         }
 
     if intent == "cancel":
+        if ledger.get("cancelled"):
+            return {
+                "current_step": "completed",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content="Northline Plus is already cancelled.")],
+            }
         return {
             "proposed_action": {
                 "tool": "cancel_subscription",
@@ -212,12 +229,25 @@ def execute_tool(state: SupportState) -> Dict[str, Any]:
     proposed = state.get("proposed_action") or {}
     tool_name = proposed.get("tool")
     args = proposed.get("args") or {}
+    ledger = state.get("ledger") or {}
 
     try:
         if tool_name == "process_refund":
+            if str(args.get("order_id")) in (ledger.get("refunded") or []):
+                return {
+                    "tool_result": None,
+                    "current_step": "error",
+                    "error": f"{args.get('order_id')} is already refunded.",
+                }
             req = RefundRequest(**args)
             result = process_refund(req)
         elif tool_name == "cancel_subscription":
+            if ledger.get("cancelled"):
+                return {
+                    "tool_result": None,
+                    "current_step": "error",
+                    "error": "Subscription is already cancelled.",
+                }
             req = CancelSubscriptionRequest(**args)
             result = cancel_subscription(req)
         elif tool_name == "update_account":
