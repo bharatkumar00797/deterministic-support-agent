@@ -1,4 +1,4 @@
-from typing import Annotated, List, Optional, Literal, Dict, Any
+from typing import Annotated, List, Optional, Dict, Any
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
@@ -14,3 +14,4 @@ class SupportState(TypedDict):
     approved: Optional[bool]
     tool_result: Optional[Dict[str, Any]]
     error: Optional[str]
+    ledger: Optional[Dict[str, Any]]

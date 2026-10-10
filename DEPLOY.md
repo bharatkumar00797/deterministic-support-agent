@@ -2,28 +2,25 @@
 
 ## What was actually broken
 
-The Vercel project only builds `frontend`. Production had **no environment variables**, so the chat bundle called `http://localhost:8001`. The FastAPI backend was never deployed (see issue #5), and it also could not boot: `Literal` was used in `nodes.py` without being imported. Even after a boot, Approve restarted the graph at classify, so the word "approve" was treated as a new intent and the refund never ran.
+The Vercel project only builds `frontend`. Production had **no environment variables**, so the chat bundle called `http://localhost:8001`. The FastAPI backend was never deployed. Even after a boot, Approve restarted the graph at classify, so the word "approve" was treated as a new intent and the refund never ran.
 
-## Frontend → Vercel (works without a second host)
+Railway cannot be connected from Grok. The Python API is a second Vercel project with root directory `backend`. Each `/chat` call sends the case snapshot back, so approval still works when a new instance handles the next click.
+
+## Frontend
 
 1. Root directory stays `frontend`.
-2. Leave `NEXT_PUBLIC_API_URL` unset. The app then posts to `/api/chat` on the same deployment. That route is stateless: the browser sends the case snapshot back, so approval survives a new serverless instance.
-3. Optional: set `NEXT_PUBLIC_API_URL` to a long-running backend if you want the Python graph instead.
+2. `NEXT_PUBLIC_API_URL` is the Python API origin, with no `/chat` suffix. The browser posts to `{NEXT_PUBLIC_API_URL}/chat`.
+3. If that variable is unset, or still points at localhost, the page uses same-origin `/api/chat`.
 
-## Backend → Railway (optional)
+## Backend
 
-1. Root directory `backend`, or the included Dockerfile.
-2. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-3. `OPENAI_API_KEY` is optional. With no key, intent is classified by rules.
-4. Point the frontend's `NEXT_PUBLIC_API_URL` at that public URL and redeploy the frontend so the value is baked in.
+1. Root directory `backend`. Framework FastAPI. Entrypoint `app.main:app`.
+2. `OPENAI_API_KEY` is optional. With no key, intent is classified by rules.
+3. Local: `uvicorn app.main:app --reload --port 8001`
 
-## Local
+## Local frontend
 
 ```bash
-# Backend on 8001
-cd backend && uvicorn app.main:app --reload --port 8001
-
-# Frontend (uses /api/chat unless NEXT_PUBLIC_API_URL is set)
 cd frontend && npm install && npm run dev
 ```
 

@@ -51,7 +51,7 @@ def route_after_classification(state: SupportState) -> str:
 
 
 def route_after_proposal(state: SupportState) -> str:
-    if state.get("current_step") == "needs_detail":
+    if state.get("current_step") in ("needs_detail", "completed"):
         return "end"
     if state.get("needs_approval") and not state.get("approved"):
         return "await_approval"
