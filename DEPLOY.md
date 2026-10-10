@@ -1,22 +1,19 @@
 # Deployment
 
-## What is actually broken
+## What was actually broken
 
-The page at https://deterministic-support-agent.vercel.app is a Next.js app whose root directory is `frontend`. Chat runs at same-origin `/api/chat`.
+`deterministic-support-api` is a FastAPI project. Its `pyproject.toml` set `[tool.vercel] entrypoint` but listed no `[project] dependencies`.
 
-`NEXT_PUBLIC_API_URL` is inlined into the browser bundle. Production currently inlines `https://deterministic-support-api.vercel.app`. That host answers every path, including `/health`, with `FUNCTION_INVOCATION_FAILED`. The browser never reaches the working `/api/chat` route. Hitting `/api/chat` directly succeeds, which is why earlier checks said the app was fine.
+Vercel installs Python with `uv sync` from `pyproject.toml`. A native `pyproject.toml` **replaces** `requirements.txt`. The function was built with zero third-party packages, so `import fastapi` killed the process before any route ran. Every path, including `/health`, returned `FUNCTION_INVOCATION_FAILED`. Editing the graph, lazy-loading it, or pointing the browser at `/api/chat` did not change that.
 
-Do not set `NEXT_PUBLIC_API_URL` on the frontend project. Leave it unset. A localhost value is also ignored once the page is not on localhost.
-
-The Python project only boots if its Vercel root directory is `backend` (requirements live there) or the repository root (root `requirements.txt` + `index.py`). It is not required for the live demo.
+Dependencies now live in both `pyproject.toml` files. `requires-python` is pinned to 3.12 so `uv` can resolve them.
 
 ## Frontend
 
-Root directory: `frontend`. No environment variables.
+Root directory: `frontend`. Chat is same-origin `/api/chat`. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` or to the Python host unless that host's `/health` returns JSON.
 
-## Backend (optional)
+## Backend
 
-Root directory: `backend`. Entrypoint: `index:app` (`backend/index.py`). `OPENAI_API_KEY` is optional.
+Root directory may be the repository or `backend/`. Entrypoint: `index:app`. `OPENAI_API_KEY` is optional.
 
 Local API: `uvicorn app.main:app --reload --port 8001` from `backend/`.
-Local UI, only if you want the Python API: copy `frontend/.env.example` to `frontend/.env.local`.

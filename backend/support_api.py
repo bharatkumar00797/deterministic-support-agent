@@ -1,5 +1,12 @@
 """Vercel FastAPI entry. The compiled graph is imported on the first request."""
 
+import sys
+from pathlib import Path
+
+_BACKEND_DIR = str(Path(__file__).resolve().parent)
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
