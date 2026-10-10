@@ -6,8 +6,6 @@ Execution path is controlled by code + validation.
 
 from typing import Dict, Any, Literal
 from langchain_core.messages import AIMessage
-from langchain_openai import ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 import os
 import json
@@ -33,6 +31,10 @@ ORDERS = {
 def get_llm():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
+        return None
+    try:
+        from langchain_openai import ChatOpenAI
+    except Exception:
         return None
     return ChatOpenAI(model="gpt-4o-mini", temperature=0)
 
@@ -78,6 +80,8 @@ def classify_intent(state: SupportState) -> Dict[str, Any]:
         else:
             intent = "other"
         return _fresh(intent, customer_id)
+
+    from langchain_core.prompts import ChatPromptTemplate
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an intent classifier for a customer support agent. "
