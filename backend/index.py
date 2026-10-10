@@ -1,4 +1,4 @@
-"""Vercel FastAPI entry. Do not import app.main: that module crashes the function."""
+"""Vercel FastAPI entry. The compiled graph is imported on the first request."""
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,9 +6,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import traceback
 import uuid
-
-from langchain_core.messages import HumanMessage, AIMessage
-from app.agent.graph import support_agent
 
 app = FastAPI(
     title="Deterministic Support Agent API",
@@ -23,6 +20,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_agent = None
+_import_error = None
+
+
+def get_agent():
+    global _agent, _import_error
+    if _agent is not None:
+        return _agent
+    if _import_error is not None:
+        raise RuntimeError(_import_error)
+    try:
+        from app.agent.graph import support_agent as compiled
+        _agent = compiled
+        return _agent
+    except Exception:
+        _import_error = traceback.format_exc()
+        raise
+
 
 DEFAULT_LEDGER = {
     "refunded": ["ORD-77821"],
@@ -129,12 +145,25 @@ def root():
 
 @app.get("/health")
 def health():
+    if _import_error:
+        return {"status": "import_error", "detail": _import_error}
+    try:
+        get_agent()
+    except Exception:
+        return {"status": "import_error", "detail": _import_error or traceback.format_exc()}
     return {"status": "healthy"}
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     """Main entry point. Each call carries its own case snapshot."""
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    try:
+        agent = get_agent()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=_import_error or str(e))
+
     snapshot = req.snapshot or None
     public_thread = req.thread_id or (snapshot or {}).get("thread_id") or "THR-1042"
     ledger = _ledger(snapshot)
@@ -155,7 +184,7 @@ def chat(req: ChatRequest):
     }
 
     try:
-        result = support_agent.invoke(input_state, config=config)
+        result = agent.invoke(input_state, config=config)
     except Exception:
         raise HTTPException(status_code=500, detail=traceback.format_exc())
 
