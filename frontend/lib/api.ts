@@ -22,6 +22,22 @@ export interface ChatResponse {
 
 export type { CaseSnapshot };
 
+function chatUrl(): string {
+  if (!configured) return "/api/chat";
+  try {
+    const host = new URL(configured).hostname;
+    const pointsAtLoopback = host === "localhost" || host === "127.0.0.1";
+    const pageHost = typeof window === "undefined" ? "" : window.location.hostname;
+    const pageIsLoopback = pageHost === "localhost" || pageHost === "127.0.0.1";
+    // A baked-in localhost URL is what made production call a backend
+    // that does not exist in the browser. Same-origin /api/chat holds the case.
+    if (pointsAtLoopback && !pageIsLoopback) return "/api/chat";
+  } catch {
+    return "/api/chat";
+  }
+  return `${configured}/chat`;
+}
+
 export async function sendMessage(
   message: string,
   threadId?: string | null,
@@ -29,8 +45,7 @@ export async function sendMessage(
   customerId?: string,
   snapshot?: CaseSnapshot | null,
 ): Promise<ChatResponse> {
-  const url = configured ? `${configured}/chat` : "/api/chat";
-  const res = await fetch(url, {
+  const res = await fetch(chatUrl(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

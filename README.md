@@ -1,6 +1,10 @@
 # Deterministic Support Agent
 
-An AI customer support agent that **actually completes multi-step tasks** (refunds, cancellations, account updates) using reliable LangGraph workflows.
+An AI customer support agent that **actually completes multi-step tasks** (refunds, cancellations, account updates). Risky tools stop at a human gate. The ledger only changes after Approve.
+
+**Live:** https://deterministic-support-agent.vercel.app
+
+The chat on that URL does not call `localhost`. Vercel only builds the Next.js app, so `/api/chat` runs the same gate in the deployment and the browser sends the case snapshot back. A separate Railway process is optional. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` on Vercel — that is what made every message fail in the browser.
 
 ## Why “Deterministic”?
 Most support bots only chat. This one:

@@ -165,6 +165,18 @@ function proposeRefund(next: CaseFile, text: string): CaseFile {
   }
 
   const known = ORDERS.find((order) => order.id === orderId);
+  if (next.ledger.refunded.includes(orderId) || known?.status === "refunded") {
+    next.step = "completed";
+    next.needsApproval = false;
+    next.proposed = null;
+    next.messages.push({
+      role: "assistant",
+      content: `${orderId}${known ? ` (${known.item})` : ""} is already refunded. I will not open another gate for it.`,
+    });
+    next.audit.push({ step: "Propose", detail: `Blocked: ${orderId} already refunded` });
+    return next;
+  }
+
   const amount = extractAmount(text) ?? known?.amount ?? null;
   if (amount == null) {
     next.step = "needs_detail";
