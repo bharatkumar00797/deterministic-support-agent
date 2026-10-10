@@ -2,10 +2,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from langchain_core.messages import HumanMessage, AIMessage
+import traceback
 import uuid
-
-from app.agent.graph import support_agent
 
 app = FastAPI(
     title="Deterministic Support Agent API",
@@ -16,10 +14,29 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_agent = None
+_import_error = None
+
+
+def support_agent():
+    global _agent, _import_error
+    if _agent is not None:
+        return _agent
+    if _import_error is not None:
+        raise RuntimeError(_import_error)
+    try:
+        from app.agent.graph import support_agent as compiled
+        _agent = compiled
+        return _agent
+    except Exception:
+        _import_error = traceback.format_exc()
+        raise
+
 
 DEFAULT_LEDGER = {
     "refunded": ["ORD-77821"],
@@ -126,17 +143,29 @@ def root():
 
 @app.get("/health")
 def health():
+    if _import_error:
+        return {"status": "import_error", "detail": _import_error}
+    try:
+        support_agent()
+    except Exception:
+        return {"status": "import_error", "detail": _import_error or traceback.format_exc()}
     return {"status": "healthy"}
 
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
     """Main entry point. Each call carries its own case snapshot."""
+    from langchain_core.messages import HumanMessage, AIMessage
+
+    try:
+        agent = support_agent()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=_import_error or str(e))
+
     snapshot = req.snapshot or None
     public_thread = req.thread_id or (snapshot or {}).get("thread_id") or "THR-1042"
     ledger = _ledger(snapshot)
     approved = _decision(req, snapshot)
-    # A new id every call so a serverless instance never resumes someone else's memory.
     config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
     input_state: Dict[str, Any] = {
@@ -153,9 +182,9 @@ def chat(req: ChatRequest):
     }
 
     try:
-        result = support_agent.invoke(input_state, config=config)
+        result = agent.invoke(input_state, config=config)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=traceback.format_exc())
 
     messages_out = []
     for m in result.get("messages") or []:
@@ -163,7 +192,6 @@ def chat(req: ChatRequest):
             continue
         content = m.content if isinstance(m.content, str) else str(m.content)
         messages_out.append({"role": "assistant", "content": content})
-    # The human message we just sent is first. Keep only replies from this turn.
     if messages_out:
         messages_out = messages_out[-1:]
 
