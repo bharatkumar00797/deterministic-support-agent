@@ -4,13 +4,14 @@ LLM is used only for understanding and proposal.
 Execution path is controlled by code + validation.
 """
 
-from typing import Dict, Any
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from typing import Dict, Any, Literal
+from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 import os
 import json
+import re
 
 from app.agent.state import SupportState
 from app.tools.actions import (
@@ -22,13 +23,19 @@ from app.tools.actions import (
     UpdateAccountRequest,
 )
 
-# Lightweight model for classification / proposal
-# Falls back gracefully if no key is set (for local testing without LLM)
+ORDERS = {
+    "ORD-12345": {"amount": 49.99, "item": "Wool overshirt"},
+    "ORD-77821": {"amount": 129.00, "item": "Leather weekender"},
+    "ORD-44002": {"amount": 18.50, "item": "Linen socks, 3-pack"},
+}
+
+
 def get_llm():
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         return None
     return ChatOpenAI(model="gpt-4o-mini", temperature=0)
+
 
 class IntentClassification(BaseModel):
     intent: Literal["refund", "cancel", "update_account", "order_status", "escalate", "other"]
@@ -36,29 +43,41 @@ class IntentClassification(BaseModel):
     customer_id: str | None = None
     reasoning: str
 
+
+def _fresh(intent: str, customer_id: str) -> Dict[str, Any]:
+    return {
+        "intent": intent,
+        "customer_id": customer_id,
+        "current_step": "classified",
+        "proposed_action": None,
+        "needs_approval": False,
+        "approved": None,
+        "tool_result": None,
+        "error": None,
+    }
+
+
 def classify_intent(state: SupportState) -> Dict[str, Any]:
-    """Node 1: Classify user intent."""
+    """Node 1: Classify user intent. A fresh turn clears the previous proposal."""
     llm = get_llm()
     last_message = state["messages"][-1].content if state["messages"] else ""
+    customer_id = state.get("customer_id") or "CUST-DEMO-001"
 
     if llm is None:
-        # Fallback heuristic for demo without API key
-        text = last_message.lower()
-        if "refund" in text:
+        text = str(last_message).lower()
+        if "refund" in text or "money back" in text:
             intent = "refund"
         elif "cancel" in text:
             intent = "cancel"
+        elif "status" in text or "where is" in text or "tracking" in text:
+            intent = "order_status"
         elif "update" in text or "change" in text:
             intent = "update_account"
-        elif "status" in text or "order" in text:
-            intent = "order_status"
+        elif "human" in text or "manager" in text or "escalate" in text:
+            intent = "escalate"
         else:
             intent = "other"
-        return {
-            "intent": intent,
-            "current_step": "classified",
-            "customer_id": state.get("customer_id") or "CUST-DEMO-001",
-        }
+        return _fresh(intent, customer_id)
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", "You are an intent classifier for a customer support agent. "
@@ -71,74 +90,122 @@ def classify_intent(state: SupportState) -> Dict[str, Any]:
     chain = prompt | structured_llm
     result: IntentClassification = chain.invoke({"message": last_message})
 
-    return {
-        "intent": result.intent,
-        "customer_id": result.customer_id or state.get("customer_id") or "CUST-DEMO-001",
-        "current_step": "classified",
-    }
+    return _fresh(result.intent, result.customer_id or customer_id)
+
+
+def _order_id(text: str) -> str | None:
+    coded = re.search(r"\bORD[-\s]?(\d{3,})\b", text, re.I)
+    if coded:
+        return f"ORD-{coded.group(1)}"
+    loose = re.search(r"\border\s+#?(\d{3,})\b", text, re.I)
+    if loose:
+        return f"ORD-{loose.group(1)}"
+    return None
+
+
+def _amount(text: str) -> float | None:
+    match = re.search(r"\$\s?(\d+(?:\.\d{1,2})?)", text)
+    return float(match.group(1)) if match else None
+
+
+def _email(text: str) -> str | None:
+    match = re.search(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", text, re.I)
+    return match.group(0) if match else None
+
 
 def propose_action(state: SupportState) -> Dict[str, Any]:
     """Node 2: Propose a concrete action based on intent."""
     intent = state.get("intent")
     customer_id = state.get("customer_id", "CUST-DEMO-001")
-    last_message = state["messages"][-1].content if state["messages"] else ""
-
-    proposed = None
-    needs_approval = False
+    last_message = str(state["messages"][-1].content if state["messages"] else "")
 
     if intent == "refund":
-        # Simple extraction for demo; in production use structured extraction
-        proposed = {
-            "tool": "process_refund",
-            "args": {
-                "order_id": "ORD-12345",
-                "amount": 49.99,
-                "reason": "Customer requested refund",
-                "customer_id": customer_id,
+        order_id = _order_id(last_message)
+        if not order_id:
+            return {
+                "current_step": "needs_detail",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content=(
+                    "Which order should I refund? Try ORD-12345, ORD-44002, or ORD-77821."
+                ))],
             }
-        }
-        needs_approval = True  # money movement always needs approval in this MVP
-    elif intent == "cancel":
-        proposed = {
-            "tool": "cancel_subscription",
-            "args": {
-                "customer_id": customer_id,
-                "subscription_id": "SUB-98765",
-                "reason": "Customer requested cancellation",
+        known = ORDERS.get(order_id)
+        amount = _amount(last_message) or (known["amount"] if known else None)
+        if amount is None:
+            return {
+                "current_step": "needs_detail",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content=f"I need a dollar amount for {order_id}.")],
             }
+        return {
+            "proposed_action": {
+                "tool": "process_refund",
+                "args": {
+                    "order_id": order_id,
+                    "amount": amount,
+                    "reason": "Customer requested refund",
+                    "customer_id": customer_id,
+                },
+            },
+            "needs_approval": True,
+            "current_step": "proposed",
         }
-        needs_approval = True
-    elif intent == "update_account":
-        proposed = {
-            "tool": "update_account",
-            "args": {
-                "customer_id": customer_id,
-                "email": None,  # would be extracted
-                "address": None,
+
+    if intent == "cancel":
+        return {
+            "proposed_action": {
+                "tool": "cancel_subscription",
+                "args": {
+                    "customer_id": customer_id,
+                    "subscription_id": "SUB-98765",
+                    "reason": "Customer requested cancellation",
+                },
+            },
+            "needs_approval": True,
+            "current_step": "proposed",
+        }
+
+    if intent == "update_account":
+        email = _email(last_message)
+        if not email:
+            return {
+                "current_step": "needs_detail",
+                "needs_approval": False,
+                "proposed_action": None,
+                "messages": [AIMessage(content="What email should I set on the account?")],
             }
+        return {
+            "proposed_action": {
+                "tool": "update_account",
+                "args": {"customer_id": customer_id, "email": email},
+            },
+            "needs_approval": False,
+            "current_step": "proposed",
         }
-        needs_approval = False
-    else:
-        proposed = {"tool": None, "args": {}}
 
     return {
-        "proposed_action": proposed,
-        "needs_approval": needs_approval,
+        "proposed_action": {"tool": None, "args": {}},
+        "needs_approval": False,
         "current_step": "proposed",
     }
+
 
 def check_approval(state: SupportState) -> Dict[str, Any]:
     """Node 3: Decide whether we can proceed or must wait for human."""
     if state.get("needs_approval") and not state.get("approved"):
+        action = state.get("proposed_action") or {}
         return {
             "current_step": "awaiting_approval",
             "messages": [AIMessage(content=(
-                f"I propose to run **{state['proposed_action']['tool']}** with args:\n"
-                f"```json\n{json.dumps(state['proposed_action']['args'], indent=2)}\n```\n"
+                f"I propose to run **{action.get('tool')}** with args:\n"
+                f"```json\n{json.dumps(action.get('args') or {}, indent=2)}\n```\n"
                 "Please reply with **approve** or **reject**."
             ))]
         }
     return {"current_step": "ready_to_execute"}
+
 
 def execute_tool(state: SupportState) -> Dict[str, Any]:
     """Node 4: Actually execute the validated tool. Pure deterministic code."""
@@ -171,6 +238,7 @@ def execute_tool(state: SupportState) -> Dict[str, Any]:
             "error": str(e),
         }
 
+
 def generate_response(state: SupportState) -> Dict[str, Any]:
     """Node 5: Produce the final user-facing message."""
     if state.get("error"):
@@ -181,7 +249,10 @@ def generate_response(state: SupportState) -> Dict[str, Any]:
         if result.get("status") == "success":
             content = f"✅ {content}"
     else:
-        content = "I understand your request. How else can I help you today?"
+        content = (
+            "I didn't take an action. Ask for a refund, a cancellation, "
+            "or an account email change."
+        )
 
     return {
         "messages": [AIMessage(content=content)],

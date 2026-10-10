@@ -1,4 +1,6 @@
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+import type { CaseSnapshot } from "@/lib/deterministic-agent";
+
+const configured = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 export interface ChatMessage {
   role: "user" | "assistant";
@@ -15,15 +17,20 @@ export interface ChatResponse {
     args: Record<string, any>;
   } | null;
   tool_result?: Record<string, any> | null;
+  snapshot?: CaseSnapshot | null;
 }
+
+export type { CaseSnapshot };
 
 export async function sendMessage(
   message: string,
   threadId?: string | null,
   approve?: boolean | null,
-  customerId?: string
+  customerId?: string,
+  snapshot?: CaseSnapshot | null,
 ): Promise<ChatResponse> {
-  const res = await fetch(`${API_BASE}/chat`, {
+  const url = configured ? `${configured}/chat` : "/api/chat";
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -31,6 +38,7 @@ export async function sendMessage(
       thread_id: threadId || undefined,
       customer_id: customerId || undefined,
       approve: approve ?? undefined,
+      snapshot: snapshot ?? undefined,
     }),
   });
 

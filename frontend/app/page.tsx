@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { sendMessage, ChatMessage, ChatResponse } from "@/lib/api";
+import { sendMessage, ChatMessage, ChatResponse, CaseSnapshot } from "@/lib/api";
 import { Bot, User, Send, CheckCircle, XCircle, Loader2, Shield } from "lucide-react";
 import clsx from "clsx";
 
@@ -15,6 +15,7 @@ export default function ChatPage() {
   ]);
   const [input, setInput] = useState("");
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<CaseSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [needsApproval, setNeedsApproval] = useState(false);
   const [proposedAction, setProposedAction] = useState<ChatResponse["proposed_action"]>(null);
@@ -41,21 +42,18 @@ export default function ChatPage() {
     setNeedsApproval(false);
 
     try {
-      const res = await sendMessage(msg || "continue", threadId, approve);
+      const res = await sendMessage(msg || "continue", threadId, approve, undefined, snapshot);
       setThreadId(res.thread_id);
+      if (res.snapshot) setSnapshot(res.snapshot);
       setCurrentStep(res.current_step);
       setNeedsApproval(res.needs_approval && res.current_step === "awaiting_approval");
       setProposedAction(res.proposed_action);
 
-      // Append only new assistant messages
       const newAssistant = res.messages.filter((m) => m.role === "assistant");
       if (newAssistant.length) {
         setMessages((prev) => {
-          // Avoid duplicating the last assistant message if it's the same
-          const last = prev[prev.length - 1];
-          const toAdd = newAssistant.filter(
-            (m) => !(last && last.role === "assistant" && last.content === m.content)
-          );
+          const seen = new Set(prev.filter((m) => m.role === "assistant").map((m) => m.content));
+          const toAdd = newAssistant.filter((m) => !seen.has(m.content));
           return [...prev, ...toAdd];
         });
       }
@@ -71,7 +69,6 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen flex flex-col max-w-3xl mx-auto bg-white shadow-xl">
-      {/* Header */}
       <header className="border-b border-slate-200 px-5 py-4 flex items-center gap-3 bg-slate-900 text-white">
         <div className="p-2 bg-sky-500/20 rounded-lg">
           <Shield className="w-5 h-5 text-sky-400" />
@@ -89,7 +86,6 @@ export default function ChatPage() {
         )}
       </header>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-5 space-y-4">
         {messages.map((m, i) => (
           <div
@@ -133,7 +129,6 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Approval card */}
         {needsApproval && proposedAction && !loading && (
           <div className="ml-11 border border-amber-200 bg-amber-50 rounded-xl p-4 space-y-3">
             <div className="text-sm font-medium text-amber-900">
@@ -166,7 +161,7 @@ export default function ChatPage() {
           <div className="ml-11 text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
             {error}
             <div className="text-xs mt-1 text-red-500">
-              Make sure the backend is running on port 8001.
+              If NEXT_PUBLIC_API_URL points at a separate backend, that service has to be running.
             </div>
           </div>
         )}
@@ -174,7 +169,6 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="border-t border-slate-200 p-4 bg-white">
         <form
           onSubmit={(e) => {

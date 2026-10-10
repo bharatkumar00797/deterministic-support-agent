@@ -1,20 +1,21 @@
 # Deployment Guide
 
-## Backend → Railway
+## What was actually broken
 
-1. Create a new project on Railway from the GitHub repo `deterministic-support-agent`.
-2. Set root directory to `backend` (or use the included Dockerfile).
-3. Add environment variable `OPENAI_API_KEY` (optional but recommended).
-4. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-5. Deploy and copy the public URL.
+The Vercel project only builds `frontend`. Production had **no environment variables**, so the chat bundle called `http://localhost:8001`. The FastAPI backend was never deployed (see issue #5), and it also could not boot: `Literal` was used in `nodes.py` without being imported. Even after a boot, Approve restarted the graph at classify, so the word "approve" was treated as a new intent and the refund never ran.
 
-## Frontend → Vercel
+## Frontend → Vercel (works without a second host)
 
-1. Import the same repo on Vercel.
-2. Set **Root Directory** = `frontend`.
-3. Environment variable:
-   - `NEXT_PUBLIC_API_URL` = your Railway backend URL
-4. Deploy.
+1. Root directory stays `frontend`.
+2. Leave `NEXT_PUBLIC_API_URL` unset. The app then posts to `/api/chat` on the same deployment. That route is stateless: the browser sends the case snapshot back, so approval survives a new serverless instance.
+3. Optional: set `NEXT_PUBLIC_API_URL` to a long-running backend if you want the Python graph instead.
+
+## Backend → Railway (optional)
+
+1. Root directory `backend`, or the included Dockerfile.
+2. Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+3. `OPENAI_API_KEY` is optional. With no key, intent is classified by rules.
+4. Point the frontend's `NEXT_PUBLIC_API_URL` at that public URL and redeploy the frontend so the value is baked in.
 
 ## Local
 
@@ -22,6 +23,8 @@
 # Backend on 8001
 cd backend && uvicorn app.main:app --reload --port 8001
 
-# Frontend
+# Frontend (uses /api/chat unless NEXT_PUBLIC_API_URL is set)
 cd frontend && npm install && npm run dev
 ```
+
+Copy `frontend/.env.example` to `frontend/.env.local` only when you want the Next app to call the Python API.

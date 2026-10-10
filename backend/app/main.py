@@ -54,7 +54,14 @@ def chat(req: ChatRequest):
     thread_id = req.thread_id or str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
-    # Build input state
+    prior_len = 0
+    try:
+        snap = support_agent.get_state(config)
+        if snap and getattr(snap, "values", None):
+            prior_len = len(snap.values.get("messages") or [])
+    except Exception:
+        prior_len = 0
+
     input_state: Dict[str, Any] = {
         "messages": [HumanMessage(content=req.message)],
     }
@@ -68,11 +75,12 @@ def chat(req: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    # Normalize messages for response
     messages_out = []
-    for m in result.get("messages", []):
+    for m in (result.get("messages") or [])[prior_len:]:
         role = "assistant" if isinstance(m, AIMessage) else "user"
-        messages_out.append({"role": role, "content": m.content})
+        content = m.content if isinstance(m.content, str) else str(m.content)
+        if role == "assistant":
+            messages_out.append({"role": role, "content": content})
 
     return ChatResponse(
         thread_id=thread_id,
