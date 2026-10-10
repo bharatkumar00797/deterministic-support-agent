@@ -10,7 +10,11 @@ Dependencies now live in both `pyproject.toml` files. `requires-python` is pinne
 
 ## Frontend
 
-Root directory: `frontend`. Chat is same-origin `/api/chat`. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` or to the Python host unless that host's `/health` returns JSON.
+Root directory: `frontend`.
+
+`NEXT_PUBLIC_API_URL` must be the public Python host (`https://deterministic-support-api.vercel.app`), never `http://localhost:8001`. The page posts to `{API_URL}/chat` and includes the case snapshot. If that request fails, it falls back to same-origin `/api/chat`.
+
+A loopback value is ignored unless the page itself is on localhost. That was the failure that kept coming back: the production bundle called a laptop, or called this API while the function was crashing on boot.
 
 ## Backend
 

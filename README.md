@@ -4,7 +4,7 @@ An AI customer support agent that **actually completes multi-step tasks** (refun
 
 **Live:** https://deterministic-support-agent.vercel.app
 
-The chat on that URL does not call `localhost`. Vercel only builds the Next.js app, so `/api/chat` runs the same gate in the deployment and the browser sends the case snapshot back. A separate Railway process is optional. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` on Vercel — that is what made every message fail in the browser.
+Chat calls the LangGraph API at `NEXT_PUBLIC_API_URL` (`https://deterministic-support-api.vercel.app/chat`) and sends the case snapshot with every turn, so Approve still works on a stateless host. If that API is down, the page falls back to same-origin `/api/chat`. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` on Vercel — the browser would call your laptop and every message would fail.
 
 ## Why “Deterministic”?
 Most support bots only chat. This one:

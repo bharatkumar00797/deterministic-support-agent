@@ -22,23 +22,37 @@ export interface ChatResponse {
 
 export type { CaseSnapshot };
 
+function isLoopback(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 function chatUrl(): string {
-  // The production bundle inlines NEXT_PUBLIC_API_URL. It is currently
-  // https://deterministic-support-api.vercel.app, and that host returns
-  // FUNCTION_INVOCATION_FAILED for every path, including /health. The
-  // same-origin route already runs the gate. Only a laptop page may call
-  // a laptop API.
-  if (typeof window === "undefined") return "/api/chat";
-  const pageHost = window.location.hostname;
-  const pageIsLoopback = pageHost === "localhost" || pageHost === "127.0.0.1";
-  if (!pageIsLoopback || !configured) return "/api/chat";
+  // A loopback API URL only works when the page itself is on that laptop.
+  // A public URL is the LangGraph service. Same-origin /api/chat is the
+  // fallback when nothing public is configured.
+  if (typeof window === "undefined" || !configured) return "/api/chat";
+  let apiHost = "";
   try {
-    const host = new URL(configured).hostname;
-    if (host !== "localhost" && host !== "127.0.0.1") return "/api/chat";
+    apiHost = new URL(configured).hostname;
   } catch {
     return "/api/chat";
   }
+  const pageIsLoopback = isLoopback(window.location.hostname);
+  if (isLoopback(apiHost)) return pageIsLoopback ? `${configured}/chat` : "/api/chat";
   return `${configured}/chat`;
+}
+
+async function postChat(url: string, payload: Record<string, unknown>): Promise<ChatResponse> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `HTTP ${res.status}`);
+  }
+  return res.json();
 }
 
 export async function sendMessage(
@@ -48,21 +62,18 @@ export async function sendMessage(
   customerId?: string,
   snapshot?: CaseSnapshot | null,
 ): Promise<ChatResponse> {
-  const res = await fetch(chatUrl(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      thread_id: threadId || undefined,
-      customer_id: customerId || undefined,
-      approve: approve ?? undefined,
-      snapshot: snapshot ?? undefined,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
+  const payload = {
+    message,
+    thread_id: threadId || undefined,
+    customer_id: customerId || undefined,
+    approve: approve ?? undefined,
+    snapshot: snapshot ?? undefined,
+  };
+  const primary = chatUrl();
+  try {
+    return await postChat(primary, payload);
+  } catch (err) {
+    if (primary === "/api/chat") throw err;
+    return postChat("/api/chat", payload);
   }
-  return res.json();
 }
