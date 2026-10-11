@@ -20,6 +20,7 @@ export default function ChatPage() {
   const [needsApproval, setNeedsApproval] = useState(false);
   const [proposedAction, setProposedAction] = useState<ChatResponse["proposed_action"]>(null);
   const [currentStep, setCurrentStep] = useState("ready");
+  const [engine, setEngine] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -57,6 +58,7 @@ export default function ChatPage() {
         setSnapshot(res.snapshot);
       }
       setCurrentStep(res.current_step);
+      if (res.engine) setEngine(res.engine);
       const waiting = Boolean(res.needs_approval && res.current_step === "awaiting_approval");
       setNeedsApproval(waiting);
       setProposedAction(waiting ? res.proposed_action ?? null : null);
@@ -95,6 +97,7 @@ export default function ChatPage() {
             </div>
             <span className="ml-auto shrink-0 rounded bg-slate-700 px-2 py-1 text-xs">
               step: {currentStep || "ready"}
+              {engine === "langgraph" ? " · LangGraph" : engine === "rules" ? " · same rules" : ""}
             </span>
           </header>
 

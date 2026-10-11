@@ -52,11 +52,15 @@ class UpdateAccountRequest(BaseModel):
     phone: Optional[str] = None
 
 def update_account(req: UpdateAccountRequest) -> dict:
-    """Simulate account update."""
+    """Simulate account update. Name every field so an email change cannot look like an address change."""
     updated = {k: v for k, v in req.model_dump().items() if v is not None and k != "customer_id"}
+    changed = [f"{key} to {value}" for key, value in updated.items()]
+    left = [key for key in ("email", "phone", "address") if key not in updated]
+    left_text = ", ".join(left) if left else "nothing"
+    message = f"Updated {' and '.join(changed)}. Left unchanged: {left_text}."
     return {
         "status": "success",
         "customer_id": req.customer_id,
         "updated_fields": list(updated.keys()),
-        "message": "Account updated successfully"
+        "message": message,
     }

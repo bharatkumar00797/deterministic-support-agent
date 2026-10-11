@@ -72,6 +72,7 @@ class ChatResponse(BaseModel):
     proposed_action: Optional[Dict[str, Any]] = None
     tool_result: Optional[Dict[str, Any]] = None
     snapshot: Optional[Dict[str, Any]] = None
+    engine: str = "langgraph"
 
 
 def _ledger(snapshot: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -228,4 +229,5 @@ def chat(req: ChatRequest):
         proposed_action=result.get("proposed_action"),
         tool_result=result.get("tool_result"),
         snapshot=case_snapshot,
+        engine="langgraph",
     )

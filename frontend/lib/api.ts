@@ -18,6 +18,7 @@ export interface ChatResponse {
   } | null;
   tool_result?: Record<string, any> | null;
   snapshot?: CaseSnapshot | null;
+  engine?: "rules" | "langgraph" | string | null;
 }
 
 export type { CaseSnapshot };

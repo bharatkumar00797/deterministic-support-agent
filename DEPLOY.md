@@ -1,6 +1,15 @@
 # Deployment
 
-## What was actually broken
+## What kept looking like the same bug
+
+There are two copies of the agent.
+
+- Production chat calls `https://deterministic-support-api.vercel.app/chat` (Python, LangGraph). The page badge says **LangGraph** when that answer comes back.
+- `frontend/lib/deterministic-agent.ts` is only the fallback, used when that request fails, or when `NEXT_PUBLIC_API_URL` is missing. The badge then says **same rules**.
+
+Editing the copy the browser is not calling does not change the site. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001`. The browser would call the laptop, the request would fail, and the fallback would answer — which is why a Python fix looked like it never landed.
+
+`SUPPORT_API_URL` is server-only. The Next route may use it to reach the Python process. It is not read by the browser.
 
 `deterministic-support-api` is a FastAPI project. Its `pyproject.toml` set `[tool.vercel] entrypoint` but listed no `[project] dependencies`.
 

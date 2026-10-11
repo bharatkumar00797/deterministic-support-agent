@@ -423,24 +423,29 @@ function execute(
   }
 
   const fields: string[] = [];
+  const changed: string[] = [];
   if (typeof proposed.args.email === "string") {
     next.ledger.email = proposed.args.email;
     fields.push("email");
+    changed.push(`email to ${proposed.args.email}`);
   }
   if (typeof proposed.args.phone === "string") {
     next.ledger.phone = proposed.args.phone;
     fields.push("phone");
+    changed.push(`phone to ${proposed.args.phone}`);
   }
   if (typeof proposed.args.address === "string") {
     next.ledger.address = proposed.args.address;
     fields.push("address");
+    changed.push(`address to ${proposed.args.address}`);
   }
   if (!fields.length) {
     return { ok: false, message: "No account field was provided.", data: {} };
   }
+  const left = ["email", "phone", "address"].filter((key) => !fields.includes(key));
   return {
     ok: true,
-    message: `Updated ${fields.join(", ")} for ${next.customerName}.`,
+    message: `Updated ${changed.join(" and ")}. Left unchanged: ${left.join(", ") || "nothing"}.`,
     data: { status: "success", updated_fields: fields },
   };
 }
@@ -558,6 +563,7 @@ export interface ChatTurnResult {
   proposed_action: ProposedAction | null;
   tool_result: Record<string, unknown> | null;
   snapshot: CaseSnapshot;
+  engine: "rules" | "langgraph";
 }
 
 export function snapshotOf(file: CaseFile): CaseSnapshot {
@@ -611,5 +617,6 @@ export function runChat(input: {
     proposed_action: next.proposed,
     tool_result: next.toolResult,
     snapshot: snapshotOf(next),
+    engine: "rules",
   };
 }

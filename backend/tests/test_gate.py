@@ -64,6 +64,9 @@ def test_email_address_phrase_does_not_overwrite_street():
     assert args["email"] == "mira@example.com"
     assert "address" not in args
     assert "phone" not in args
+    reply = str(updated["messages"][-1].content)
+    assert "mira@example.com" in reply
+    assert "Left unchanged: phone, address" in reply
 
 
 def test_phone_and_address_update_without_asking_for_email():
@@ -92,4 +95,14 @@ def test_local_phone_updates_without_an_area_code():
     phone = turn(agent, "Change my phone to 555-0199")
     assert phone["current_step"] == "completed"
     assert phone["proposed_action"]["args"]["phone"] == "555-0199"
+
+
+def test_order_status_keeps_shipment_state():
+    agent = build_support_graph()
+    status = turn(agent, "Where is order 44002?")
+    reply = str(status["messages"][-1].content)
+    assert "shipped" in reply
+    assert "on file" not in reply
+    delivered = turn(agent, "Where is order 12345?")
+    assert "delivered" in str(delivered["messages"][-1].content)
 
