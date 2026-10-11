@@ -56,6 +56,16 @@ def test_refund_gate_blocks_wrong_amount_and_runs_after_approve():
     assert done["current_step"] == "completed"
 
 
+def test_email_address_phrase_does_not_overwrite_street():
+    agent = build_support_graph()
+    updated = turn(agent, "Update my email address to mira@example.com")
+    assert updated["current_step"] == "completed"
+    args = updated["proposed_action"]["args"]
+    assert args["email"] == "mira@example.com"
+    assert "address" not in args
+    assert "phone" not in args
+
+
 def test_phone_and_address_update_without_asking_for_email():
     agent = build_support_graph()
     phone = turn(agent, "Change my phone to +1 415 555 0199")

@@ -501,10 +501,15 @@ function extractPhone(text: string): string | null {
 }
 
 function extractAddress(text: string): string | null {
-  const labeled = text.match(/\baddress\s*:\s*(.+)$/i);
+  // "email address to a@b.com" names the email field, not a street.
+  const cleaned = text.replace(/\bemail\s+address\b/gi, "email");
+  const labeled = cleaned.match(/\baddress\s*:\s*(.+)$/i);
   if (labeled) return labeled[1].trim();
-  const stated = text.match(/\baddress\s+(?:to|is)\s+(.+)$/i);
-  return stated ? stated[1].trim() : null;
+  const stated = cleaned.match(/\baddress\s+(?:to|is)\s+(.+)$/i);
+  if (!stated) return null;
+  const value = stated[1].trim();
+  if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(value)) return null;
+  return value;
 }
 
 function displayStatus(file: CaseFile, order: CatalogOrder): string {
@@ -518,7 +523,7 @@ export const PROMPTS = [
   "Refund order 12345",
   "Cancel my subscription",
   "Where is order 44002?",
-  "Change my email to mira.new@northline.test",
+  "Update my email address to mira@example.com",
 ];
 
 export interface CaseSnapshot {

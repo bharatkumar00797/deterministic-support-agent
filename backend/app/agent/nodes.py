@@ -141,11 +141,19 @@ def _phone(text: str) -> str | None:
 
 
 def _address(text: str) -> str | None:
-    labeled = re.search(r"\baddress\s*:\s*(.+)$", text, re.I)
+    # "email address to a@b.com" names the email field, not a street.
+    cleaned = re.sub(r"\bemail\s+address\b", "email", text, flags=re.I)
+    labeled = re.search(r"\baddress\s*:\s*(.+)$", cleaned, re.I)
     if labeled:
         return labeled.group(1).strip()
-    stated = re.search(r"\baddress\s+(?:to|is)\s+(.+)$", text, re.I)
-    return stated.group(1).strip() if stated else None
+    stated = re.search(r"\baddress\s+(?:to|is)\s+(.+)$", cleaned, re.I)
+    if not stated:
+        return None
+    value = stated.group(1).strip()
+    email = _email(value)
+    if email and email == value:
+        return None
+    return value
 
 
 def propose_action(state: SupportState) -> Dict[str, Any]:
