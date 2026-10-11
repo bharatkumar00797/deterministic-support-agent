@@ -93,9 +93,29 @@ def _order_id(text: str) -> str | None:
     return None
 
 
-def _amount(text: str) -> float | None:
-    match = re.search(r"\$\s?(\d+(?:\.\d{1,2})?)", text)
-    return float(match.group(1)) if match else None
+def _amount(text: str, order_id: str | None = None) -> float | None:
+    """A stated refund amount.
+
+    `$10` was the only form that counted, so "10 dollars" or
+    "refund 10 on order 12345" opened a gate for the full order total.
+    """
+    dollar = re.search(r"\$\s?(\d+(?:\.\d{1,2})?)", text)
+    if dollar:
+        return float(dollar.group(1))
+    words = re.search(
+        r"\b(\d+(?:\.\d{1,2})?)\s*(?:dollars?|usd|bucks)\b",
+        text,
+        re.I,
+    )
+    if words:
+        return float(words.group(1))
+    order_digits = order_id.split("-", 1)[1] if order_id and "-" in order_id else None
+    leftovers = [
+        n for n in re.findall(r"\b(\d+(?:\.\d{1,2})?)\b", text) if n != order_digits
+    ]
+    if len(leftovers) == 1:
+        return float(leftovers[0])
+    return None
 
 
 def _email(text: str) -> str | None:
@@ -134,10 +154,16 @@ def _is_account_change(text: str) -> bool:
 
 def _phone(text: str) -> str | None:
     match = re.search(
-        r"(?:\+\d{1,3}\s?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}",
+        r"(?:\+\d{1,3}[\s.-]?)?(?:\(\d{3}\)|\d{3})[\s.-]?\d{3}[\s.-]?\d{4}",
         text,
     )
-    return match.group(0) if match else None
+    if match:
+        return match.group(0)
+    if re.search(r"\bphone\b", text, re.I):
+        local = re.search(r"\b(\d{3}[\s.-]\d{4})\b", text)
+        if local:
+            return local.group(0)
+    return None
 
 
 def _address(text: str) -> str | None:
@@ -193,7 +219,7 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
                     f"No order {order_id} belongs to this account. I will not open a refund gate."
                 ))],
             }
-        stated = _amount(last_message)
+        stated = _amount(last_message, order_id)
         amount = known["amount"] if stated is None else stated
         if abs(amount - known["amount"]) > 0.009 or amount > 5000:
             return {

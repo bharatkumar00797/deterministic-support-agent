@@ -76,3 +76,20 @@ def test_phone_and_address_update_without_asking_for_email():
     address = turn(agent, "address: 9 Market Street, Oakland")
     assert address["current_step"] == "completed"
     assert address["proposed_action"]["args"]["address"] == "9 Market Street, Oakland"
+
+def test_worded_amount_does_not_open_a_full_refund_gate():
+    agent = build_support_graph()
+    blocked = turn(agent, "refund 10 dollars on order 12345")
+    assert blocked["current_step"] == "needs_detail"
+    assert blocked["proposed_action"] is None
+    bare = turn(agent, "refund 10 on order 12345")
+    assert bare["current_step"] == "needs_detail"
+    assert bare["proposed_action"] is None
+
+
+def test_local_phone_updates_without_an_area_code():
+    agent = build_support_graph()
+    phone = turn(agent, "Change my phone to 555-0199")
+    assert phone["current_step"] == "completed"
+    assert phone["proposed_action"]["args"]["phone"] == "555-0199"
+

@@ -189,7 +189,7 @@ function proposeRefund(next: CaseFile, text: string): CaseFile {
     return next;
   }
 
-  const stated = extractAmount(text);
+  const stated = extractAmount(text, orderId);
   const amount = stated ?? known.amount;
   if (Math.abs(amount - known.amount) > 0.009 || amount > 5000) {
     next.step = "needs_detail";
@@ -484,10 +484,17 @@ export function extractOrderId(text: string): string | null {
   return null;
 }
 
-function extractAmount(text: string): number | null {
-  const match = text.match(/\$\s?(\d+(?:\.\d{1,2})?)/);
-  if (!match) return null;
-  return Number(match[1]);
+function extractAmount(text: string, orderId?: string | null): number | null {
+  const dollar = text.match(/\$\s?(\d+(?:\.\d{1,2})?)/);
+  if (dollar) return Number(dollar[1]);
+  const words = text.match(/\b(\d+(?:\.\d{1,2})?)\s*(?:dollars?|usd|bucks)\b/i);
+  if (words) return Number(words[1]);
+  const orderDigits = orderId?.split("-")[1];
+  const leftovers = [...text.matchAll(/\b(\d+(?:\.\d{1,2})?)\b/g)]
+    .map((match) => match[1])
+    .filter((n) => n !== orderDigits);
+  if (leftovers.length === 1) return Number(leftovers[0]);
+  return null;
 }
 
 function extractEmail(text: string): string | null {
@@ -496,8 +503,13 @@ function extractEmail(text: string): string | null {
 }
 
 function extractPhone(text: string): string | null {
-  const match = text.match(/(?:\+\d{1,3}\s?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/);
-  return match ? match[0] : null;
+  const match = text.match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{3}\)?[\s.-]?)\d{3}[\s.-]?\d{4}/);
+  if (match) return match[0];
+  if (/\bphone\b/i.test(text)) {
+    const local = text.match(/\b(\d{3}[\s.-]\d{4})\b/);
+    if (local) return local[0];
+  }
+  return null;
 }
 
 function extractAddress(text: string): string | null {
