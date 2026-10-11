@@ -28,7 +28,7 @@ def process_refund(req: RefundRequest) -> dict:
         "status": "success",
         "refund_id": f"ref_{req.order_id}_{int(datetime.utcnow().timestamp())}",
         "amount": req.amount,
-        "message": f"Refund of ${req.amount} processed for order {req.order_id}"
+        "message": f"Refund of ${req.amount:.2f} processed for order {req.order_id}"
     }
 
 class CancelSubscriptionRequest(BaseModel):
