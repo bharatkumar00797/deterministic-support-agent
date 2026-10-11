@@ -1,11 +1,9 @@
-import type { CaseSnapshot } from "@/lib/deterministic-agent";
+import type { CaseSnapshot, ChatMessage } from "@/lib/types";
 
-const configured = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+export type { CaseSnapshot, ChatMessage };
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+// The Python API is the only agent. There is no second copy to fall back to.
+const PUBLIC_API = "https://deterministic-support-api.vercel.app";
 
 export interface ChatResponse {
   thread_id: string;
@@ -18,42 +16,16 @@ export interface ChatResponse {
   } | null;
   tool_result?: Record<string, any> | null;
   snapshot?: CaseSnapshot | null;
-  engine?: "rules" | "langgraph" | string | null;
+  engine?: string | null;
 }
 
-export type { CaseSnapshot };
-
-function isLoopback(host: string): boolean {
-  return host === "localhost" || host === "127.0.0.1";
-}
-
-function chatUrl(): string {
-  // A loopback API URL only works when the page itself is on that laptop.
-  // A public URL is the LangGraph service. Same-origin /api/chat is the
-  // fallback when nothing public is configured.
-  if (typeof window === "undefined" || !configured) return "/api/chat";
-  let apiHost = "";
-  try {
-    apiHost = new URL(configured).hostname;
-  } catch {
-    return "/api/chat";
+export function apiBase(): string {
+  const configured = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/+$/, "");
+  if (configured) return configured;
+  if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+    return "http://localhost:8001";
   }
-  const pageIsLoopback = isLoopback(window.location.hostname);
-  if (isLoopback(apiHost)) return pageIsLoopback ? `${configured}/chat` : "/api/chat";
-  return `${configured}/chat`;
-}
-
-async function postChat(url: string, payload: Record<string, unknown>): Promise<ChatResponse> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `HTTP ${res.status}`);
-  }
-  return res.json();
+  return PUBLIC_API;
 }
 
 export async function sendMessage(
@@ -63,18 +35,25 @@ export async function sendMessage(
   customerId?: string,
   snapshot?: CaseSnapshot | null,
 ): Promise<ChatResponse> {
-  const payload = {
-    message,
-    thread_id: threadId || undefined,
-    customer_id: customerId || undefined,
-    approve: approve ?? undefined,
-    snapshot: snapshot ?? undefined,
-  };
-  const primary = chatUrl();
+  const base = apiBase();
+  let res: Response;
   try {
-    return await postChat(primary, payload);
-  } catch (err) {
-    if (primary === "/api/chat") throw err;
-    return postChat("/api/chat", payload);
+    res = await fetch(`${base}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        thread_id: threadId || undefined,
+        customer_id: customerId || undefined,
+        approve: approve ?? undefined,
+        snapshot: snapshot ?? undefined,
+      }),
+    });
+  } catch {
+    throw new Error(`Could not reach the support API at ${base}. Nothing was changed.`);
   }
+  if (!res.ok) {
+    throw new Error(`The support API returned HTTP ${res.status}. Nothing was changed.`);
+  }
+  return res.json();
 }

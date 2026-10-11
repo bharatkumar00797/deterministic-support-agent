@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { sendMessage, ChatMessage, ChatResponse, CaseSnapshot } from "@/lib/api";
-import { PROMPTS } from "@/lib/deterministic-agent";
+import { PROMPTS } from "@/lib/types";
 import { Bot, CheckCircle, Loader2, Send, Shield, User, XCircle } from "lucide-react";
 import clsx from "clsx";
 
@@ -97,7 +97,7 @@ export default function ChatPage() {
             </div>
             <span className="ml-auto shrink-0 rounded bg-slate-700 px-2 py-1 text-xs">
               step: {currentStep || "ready"}
-              {engine === "langgraph" ? " · LangGraph" : engine === "rules" ? " · same rules" : ""}
+              {engine ? ` · ${engine}` : ""}
             </span>
           </header>
 
