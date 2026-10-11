@@ -90,6 +90,9 @@ def _order_id(text: str) -> str | None:
     loose = re.search(r"\border\s+#?(\d{3,})\b", text, re.I)
     if loose:
         return f"ORD-{loose.group(1)}"
+    for bare in re.findall(r"\b(\d{5})\b", text):
+        if f"ORD-{bare}" in ORDERS:
+            return f"ORD-{bare}"
     return None
 
 
@@ -127,7 +130,7 @@ def _rules_intent(text: str) -> str:
     """Same order as the browser agent, so production and /api/chat agree."""
     lowered = text.lower()
     if re.search(r"\b(refund|money back|chargeback)\b", lowered):
-        return "refund"
+        return "refund_and_cancel" if "cancel" in lowered else "refund"
     if "cancel" in lowered:
         return "cancel"
     if re.search(r"\b(status|tracking|where is|shipped|delivered)\b", lowered):
@@ -188,6 +191,17 @@ def propose_action(state: SupportState) -> Dict[str, Any]:
     customer_id = state.get("customer_id", "CUST-DEMO-001")
     last_message = str(state["messages"][-1].content if state["messages"] else "")
     ledger = state.get("ledger") or {}
+
+    if intent == "refund_and_cancel":
+        return {
+            "current_step": "needs_detail",
+            "needs_approval": False,
+            "proposed_action": None,
+            "messages": [AIMessage(content=(
+                "That is two requests. I handle one at a time so each gets its own approval. "
+                "Which first: the refund or the cancellation?"
+            ))],
+        }
 
     if intent == "refund":
         order_id = _order_id(last_message)
@@ -400,8 +414,8 @@ def generate_response(state: SupportState) -> Dict[str, Any]:
         )
     else:
         content = (
-            "I didn't take an action. Ask for a refund, a cancellation, "
-            "or an account email change."
+            "I didn't take an action. I can refund an order, cancel the subscription, "
+            "update your email, phone or address, or check an order status."
         )
 
     return {

@@ -1,32 +1,26 @@
 # Deployment
 
-## What kept looking like the same bug
+Two Vercel projects deploy from `main` of this repo.
 
-There are two copies of the agent.
+| Project | Root directory | Serves |
+|---|---|---|
+| `deterministic-support-agent` | `frontend` | the chat page |
+| `deterministic-support-api` | repo root (or `backend/`) | FastAPI, entrypoint `index:app` |
 
-- Production chat calls `https://deterministic-support-api.vercel.app/chat` (Python, LangGraph). The page badge says **LangGraph** when that answer comes back.
-- `frontend/lib/deterministic-agent.ts` is only the fallback, used when that request fails, or when `NEXT_PUBLIC_API_URL` is missing. The badge then says **same rules**.
+## Why edits sometimes did not show up
 
-Editing the copy the browser is not calling does not change the site. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001`. The browser would call the laptop, the request would fail, and the fallback would answer — which is why a Python fix looked like it never landed.
+Until now there were two copies of the agent: the Python graph and a TypeScript port in the frontend. The page called the Python API and silently switched to the TypeScript copy when that call failed, so a fix to one could look like it had no effect. The TypeScript copy and its `/api/chat` route are removed. Python is the only agent.
 
-`SUPPORT_API_URL` is server-only. The Next route may use it to reach the Python process. It is not read by the browser.
+## Settings
 
-`deterministic-support-api` is a FastAPI project. Its `pyproject.toml` set `[tool.vercel] entrypoint` but listed no `[project] dependencies`.
+- Frontend: `NEXT_PUBLIC_API_URL` is optional. It is read at build time and must be the API origin with no `/chat` and no trailing path. Unset, the page uses the public API above (or `http://localhost:8001` when opened on localhost). Changing it needs a redeploy.
+- API: no variables are required. `OPENAI_API_KEY` is optional and unused by the rule-based path.
+- Vercel installs Python packages from `pyproject.toml` (it takes priority over `requirements.txt`). Keep the dependency lists in `pyproject.toml`, `backend/pyproject.toml`, `requirements.txt` and `backend/requirements.txt` identical.
 
-Vercel installs Python with `uv sync` from `pyproject.toml`. A native `pyproject.toml` **replaces** `requirements.txt`. The function was built with zero third-party packages, so `import fastapi` killed the process before any route ran. Every path, including `/health`, returned `FUNCTION_INVOCATION_FAILED`. Editing the graph, lazy-loading it, or pointing the browser at `/api/chat` did not change that.
+## Checking a deploy
 
-Dependencies now live in both `pyproject.toml` files. `requires-python` is pinned to 3.12 so `uv` can resolve them.
-
-## Frontend
-
-Root directory: `frontend`.
-
-`NEXT_PUBLIC_API_URL` must be the public Python host only (`https://deterministic-support-api.vercel.app`), never a path ending in `/chat` and never `http://localhost:8001`. The page posts to `{API_URL}/chat` and includes the case snapshot. If that request fails, it falls back to same-origin `/api/chat`. That fallback has to enforce the same gates as the Python graph. It used to open a refund for whatever dollar amount was typed, and it ignored “change my address to …”. A failed API call then looked exactly like the old bugs.
-
-A loopback value is ignored unless the page itself is on localhost. That was the failure that kept coming back: the production bundle called a laptop, or called this API while the function was crashing on boot.
-
-## Backend
-
-Root directory may be the repository or `backend/`. Entrypoint: `index:app`. `OPENAI_API_KEY` is optional.
-
-Local API: `uvicorn app.main:app --reload --port 8001` from `backend/`.
+```bash
+curl https://deterministic-support-api.vercel.app/health
+curl -X POST https://deterministic-support-api.vercel.app/chat \
+  -H 'content-type: application/json' -d '{"message":"Where is order 44002?"}'
+```

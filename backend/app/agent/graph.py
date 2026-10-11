@@ -4,7 +4,6 @@ Control flow is explicit; LLM only influences proposals.
 """
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import AIMessage
 
 from app.agent.state import SupportState
@@ -19,9 +18,26 @@ from app.agent.nodes import (
 
 def route_entry(state: SupportState) -> str:
     """Resume a parked approval instead of reclassifying the word 'approve'."""
-    if state.get("current_step") == "awaiting_approval" and state.get("approved") is not None:
-        return "resolve"
+    if state.get("current_step") == "awaiting_approval":
+        if state.get("approved") is not None:
+            return "resolve"
+        return "remind"
     return "classify"
+
+
+def remind_pending(state: SupportState):
+    """A case is parked at the gate. Any other message leaves it parked."""
+    tool = (state.get("proposed_action") or {}).get("tool") or "the proposed tool"
+    return {
+        "current_step": "awaiting_approval",
+        "needs_approval": True,
+        "messages": [
+            AIMessage(content=(
+                f"{tool} is still waiting. Approve or reject it first. "
+                "Nothing has run."
+            ))
+        ],
+    }
 
 
 def resolve_approval(state: SupportState):
@@ -45,7 +61,7 @@ def route_after_resolve(state: SupportState) -> str:
 
 def route_after_classification(state: SupportState) -> str:
     intent = state.get("intent")
-    if intent in ("refund", "cancel", "update_account"):
+    if intent in ("refund", "refund_and_cancel", "cancel", "update_account"):
         return "propose"
     return "respond"
 
@@ -78,6 +94,7 @@ def build_support_graph():
     graph.add_node("propose", propose_action)
     graph.add_node("check_approval", check_approval)
     graph.add_node("resolve", resolve_approval)
+    graph.add_node("remind", remind_pending)
     graph.add_node("execute", execute_tool)
     graph.add_node("respond", generate_response)
 
@@ -86,7 +103,7 @@ def build_support_graph():
     graph.add_conditional_edges(
         "start",
         route_entry,
-        {"classify": "classify", "resolve": "resolve"},
+        {"classify": "classify", "resolve": "resolve", "remind": "remind"},
     )
 
     graph.add_conditional_edges(
@@ -119,9 +136,11 @@ def build_support_graph():
 
     graph.add_edge("execute", "respond")
     graph.add_edge("respond", END)
+    graph.add_edge("remind", END)
 
-    memory = MemorySaver()
-    return graph.compile(checkpointer=memory)
+    # No checkpointer: the host is stateless. The caller sends the case
+    # snapshot with every turn and gets the updated one back.
+    return graph.compile()
 
 
 support_agent = build_support_graph()
