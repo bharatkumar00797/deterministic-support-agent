@@ -4,7 +4,7 @@ An AI customer support agent that **actually completes multi-step tasks** (refun
 
 **Live:** https://deterministic-support-agent.vercel.app
 
-Chat calls the LangGraph API at `NEXT_PUBLIC_API_URL` (`https://deterministic-support-api.vercel.app/chat`) and sends the case snapshot with every turn, so Approve still works on a stateless host. If that API is down, the page falls back to same-origin `/api/chat`. Do not set `NEXT_PUBLIC_API_URL` to `http://localhost:8001` on Vercel — the browser would call your laptop and every message would fail.
+Chat calls the LangGraph API at `NEXT_PUBLIC_API_URL` (`https://deterministic-support-api.vercel.app`, with `/chat` added by the page) and sends the case snapshot with every turn, so Approve still works on a stateless host. If that request fails, the page falls back to same-origin `/api/chat`, which uses the same rules. Do not set `NEXT_PUBLIC_API_URL` to a URL that already ends in `/chat`, and never to `http://localhost:8001` on Vercel — the browser would call the wrong path or your laptop, and every message would miss the Python agent.
 
 ## Why “Deterministic”?
 Most support bots only chat. This one:

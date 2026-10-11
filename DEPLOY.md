@@ -12,7 +12,7 @@ Dependencies now live in both `pyproject.toml` files. `requires-python` is pinne
 
 Root directory: `frontend`.
 
-`NEXT_PUBLIC_API_URL` must be the public Python host (`https://deterministic-support-api.vercel.app`), never `http://localhost:8001`. The page posts to `{API_URL}/chat` and includes the case snapshot. If that request fails, it falls back to same-origin `/api/chat`.
+`NEXT_PUBLIC_API_URL` must be the public Python host only (`https://deterministic-support-api.vercel.app`), never a path ending in `/chat` and never `http://localhost:8001`. The page posts to `{API_URL}/chat` and includes the case snapshot. If that request fails, it falls back to same-origin `/api/chat`. That fallback has to enforce the same gates as the Python graph. It used to open a refund for whatever dollar amount was typed, and it ignored “change my address to …”. A failed API call then looked exactly like the old bugs.
 
 A loopback value is ignored unless the page itself is on localhost. That was the failure that kept coming back: the production bundle called a laptop, or called this API while the function was crashing on boot.
 

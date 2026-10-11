@@ -165,25 +165,41 @@ function proposeRefund(next: CaseFile, text: string): CaseFile {
   }
 
   const known = ORDERS.find((order) => order.id === orderId);
-  if (next.ledger.refunded.includes(orderId) || known?.status === "refunded") {
+  if (!known) {
     next.step = "completed";
     next.needsApproval = false;
     next.proposed = null;
     next.messages.push({
       role: "assistant",
-      content: `${orderId}${known ? ` (${known.item})` : ""} is already refunded. I will not open another gate for it.`,
+      content: `No order ${orderId} belongs to this account. I will not open a refund gate.`,
+    });
+    next.audit.push({ step: "Propose", detail: `Blocked: unknown order ${orderId}` });
+    return next;
+  }
+
+  if (next.ledger.refunded.includes(orderId) || known.status === "refunded") {
+    next.step = "completed";
+    next.needsApproval = false;
+    next.proposed = null;
+    next.messages.push({
+      role: "assistant",
+      content: `${orderId} (${known.item}) is already refunded. I will not open another gate for it.`,
     });
     next.audit.push({ step: "Propose", detail: `Blocked: ${orderId} already refunded` });
     return next;
   }
 
-  const amount = extractAmount(text) ?? known?.amount ?? null;
-  if (amount == null) {
+  const stated = extractAmount(text);
+  const amount = stated ?? known.amount;
+  if (Math.abs(amount - known.amount) > 0.009 || amount > 5000) {
     next.step = "needs_detail";
+    next.needsApproval = false;
+    next.proposed = null;
     next.messages.push({
       role: "assistant",
-      content: `I don't have a balance for ${orderId}. Tell me the refund amount, or use an order on this account.`,
+      content: `$${amount.toFixed(2)} does not match the ${orderId} total of $${known.amount.toFixed(2)}. I will not open a gate for a different amount.`,
     });
+    next.audit.push({ step: "Propose", detail: "Blocked: amount does not match the order" });
     return next;
   }
 
@@ -191,7 +207,7 @@ function proposeRefund(next: CaseFile, text: string): CaseFile {
     tool: "process_refund",
     args: {
       order_id: orderId,
-      amount,
+      amount: known.amount,
       reason: "Customer requested refund",
       customer_id: next.customerId,
     },
@@ -253,8 +269,10 @@ function proposeCancel(next: CaseFile, _text: string): CaseFile {
 
 function runUpdate(next: CaseFile, text: string): CaseFile {
   const email = extractEmail(text);
-  const phone = extractPhone(text);
+  let phone = extractPhone(text);
   const address = extractAddress(text);
+  // A phone pattern can swallow digits that are not a phone request.
+  if (phone && !/\bphone\b/i.test(text)) phone = null;
   if (!email && !phone && !address) {
     next.step = "needs_detail";
     next.messages.push({
@@ -483,8 +501,10 @@ function extractPhone(text: string): string | null {
 }
 
 function extractAddress(text: string): string | null {
-  const match = text.match(/\baddress\s*:\s*(.+)$/i);
-  return match ? match[1].trim() : null;
+  const labeled = text.match(/\baddress\s*:\s*(.+)$/i);
+  if (labeled) return labeled[1].trim();
+  const stated = text.match(/\baddress\s+(?:to|is)\s+(.+)$/i);
+  return stated ? stated[1].trim() : null;
 }
 
 function displayStatus(file: CaseFile, order: CatalogOrder): string {
